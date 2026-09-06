@@ -215,23 +215,43 @@ async def websocket_endpoint(websocket: WebSocket, client_id: str = None):
 # --- 配置区域 ---
 
 CLIENT_ID = str(uuid.uuid4())
+# Source files and PyInstaller's temporary extraction directory are application
+# resources.  They must never be used for mutable state.
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-WORKFLOW_DIR = os.path.join(BASE_DIR, "workflows")
-WORKFLOW_PATH = os.path.join(WORKFLOW_DIR, "Z-Image.json")
-STATIC_DIR = os.path.join(BASE_DIR, "static")
+APP_RESOURCE_DIR = os.path.abspath(getattr(sys, "_MEIPASS", BASE_DIR))
+RUNNING_FROZEN = bool(getattr(sys, "frozen", False))
+
+def default_user_data_dir() -> str:
+    override = str(os.getenv("INFINITE_CANVAS_DATA_DIR", "")).strip()
+    if override:
+        return os.path.abspath(os.path.expanduser(override))
+    if os.name == "nt":
+        root = os.environ.get("LOCALAPPDATA") or os.path.expanduser("~\\AppData\\Local")
+    elif sys.platform == "darwin":
+        root = os.path.expanduser("~/Library/Application Support")
+    else:
+        root = os.environ.get("XDG_DATA_HOME") or os.path.expanduser("~/.local/share")
+    return os.path.abspath(os.path.join(root, "Infinite-Canvas"))
+
+USER_DATA_DIR = default_user_data_dir()
+RESOURCE_WORKFLOW_DIR = os.path.join(APP_RESOURCE_DIR, "workflows")
+USER_WORKFLOW_DIR = os.path.join(USER_DATA_DIR, "workflows")
+WORKFLOW_DIR = RESOURCE_WORKFLOW_DIR
+WORKFLOW_PATH = os.path.join(RESOURCE_WORKFLOW_DIR, "Z-Image.json")
+STATIC_DIR = os.path.join(APP_RESOURCE_DIR, "static")
 STATIC_RUNNINGHUB_DIR = os.path.join(STATIC_DIR, "runninghub")
 STATIC_RUNNINGHUB_THUMBNAIL_DIR = os.path.join(STATIC_RUNNINGHUB_DIR, "thumbnails")
-STATIC_RUNNINGHUB_API_PROVIDERS_FILE = os.path.join(STATIC_RUNNINGHUB_DIR, "api_providers.json")
+PACKAGED_RUNNINGHUB_API_PROVIDERS_FILE = os.path.join(STATIC_RUNNINGHUB_DIR, "api_providers.json")
 STATIC_RUNNINGHUB_MODEL_REGISTRY_FILE = os.path.join(STATIC_RUNNINGHUB_DIR, "models_registry.json")
-OUTPUT_DIR = os.path.join(BASE_DIR, "output")
-ASSETS_DIR = os.path.join(BASE_DIR, "assets")
+OUTPUT_DIR = os.path.join(USER_DATA_DIR, "output")
+ASSETS_DIR = os.path.join(USER_DATA_DIR, "assets")
 OUTPUT_INPUT_DIR = os.path.join(ASSETS_DIR, "input")
 OUTPUT_OUTPUT_DIR = os.path.join(ASSETS_DIR, "output")
 ASSET_LIBRARY_DIR = os.path.join(ASSETS_DIR, "library")
 LOCAL_UPLOAD_DIR = os.path.join(ASSETS_DIR, "uploads")
-HISTORY_FILE = os.path.join(BASE_DIR, "history.json")
-API_ENV_FILE = os.path.join(BASE_DIR, "API", ".env")
-DATA_DIR = os.path.join(BASE_DIR, "data")
+HISTORY_FILE = os.path.join(USER_DATA_DIR, "history.json")
+API_ENV_FILE = os.path.join(USER_DATA_DIR, "API", ".env")
+DATA_DIR = os.path.join(USER_DATA_DIR, "data")
 CONVERSATION_DIR = os.path.join(DATA_DIR, "conversations")
 CANVAS_DIR = os.path.join(DATA_DIR, "canvases")
 MEDIA_PREVIEW_DIR = os.path.join(DATA_DIR, "media_previews")
@@ -240,7 +260,8 @@ PROMPT_LIBRARY_PATH = os.path.join(DATA_DIR, "prompt_libraries.json")
 API_PROVIDERS_FILE = os.path.join(DATA_DIR, "api_providers.json")
 RUNNINGHUB_WORKFLOW_STORE_FILE = os.path.join(DATA_DIR, "runninghub_workflows.json")
 SHARED_FOLDERS_FILE = os.path.join(DATA_DIR, "shared_folders.json")
-GLOBAL_CONFIG_FILE = os.path.join(BASE_DIR, "global_config.json")
+GLOBAL_CONFIG_FILE = os.path.join(USER_DATA_DIR, "global_config.json")
+STATIC_RUNNINGHUB_API_PROVIDERS_FILE = os.path.join(DATA_DIR, "runninghub_static_provider.json")
 CANVAS_TRASH_RETENTION_MS = 30 * 24 * 60 * 60 * 1000
 LOCAL_IMAGE_IMPORT_MAX_BYTES = int(os.getenv("LOCAL_IMAGE_IMPORT_MAX_BYTES", str(50 * 1024 * 1024)))
 LOCAL_IMAGE_IMPORT_EXTS = {".png", ".jpg", ".jpeg", ".webp", ".gif"}
@@ -258,7 +279,7 @@ def _storage_abs_path(value, fallback):
         return os.path.abspath(fallback)
     text = os.path.expanduser(os.path.expandvars(text))
     if not os.path.isabs(text):
-        text = os.path.join(BASE_DIR, text)
+        text = os.path.join(USER_DATA_DIR, text)
     return os.path.abspath(text)
 
 def load_storage_settings():
@@ -295,6 +316,20 @@ def apply_storage_settings(dirs=None):
     LOCAL_UPLOAD_DIR = dirs.get("local") or LOCAL_UPLOAD_DIR
 
 apply_storage_settings()
+
+def ensure_user_data_layout():
+    """Create the mutable layout and seed non-sensitive packaged defaults once."""
+    for path in (
+        USER_DATA_DIR, DATA_DIR, ASSETS_DIR, OUTPUT_DIR, OUTPUT_INPUT_DIR,
+        OUTPUT_OUTPUT_DIR, ASSET_LIBRARY_DIR, LOCAL_UPLOAD_DIR, CONVERSATION_DIR,
+        CANVAS_DIR, MEDIA_PREVIEW_DIR, USER_WORKFLOW_DIR, os.path.dirname(API_ENV_FILE),
+    ):
+        os.makedirs(path, exist_ok=True)
+    if (not os.path.exists(STATIC_RUNNINGHUB_API_PROVIDERS_FILE)
+            and os.path.exists(PACKAGED_RUNNINGHUB_API_PROVIDERS_FILE)):
+        shutil.copy2(PACKAGED_RUNNINGHUB_API_PROVIDERS_FILE, STATIC_RUNNINGHUB_API_PROVIDERS_FILE)
+
+ensure_user_data_layout()
 
 QUEUE = []
 QUEUE_LOCK = Lock()
@@ -516,7 +551,7 @@ def ensure_runtime_config_files():
     except Exception as e:
         print(f"初始化 API 配置目录失败: {e}")
 
-def load_env_file():
+def load_env_file(overwrite: bool = False):
     if not os.path.exists(API_ENV_FILE):
         return
     try:
@@ -528,7 +563,10 @@ def load_env_file():
                 key, value = line.split("=", 1)
                 key = key.strip()
                 value = value.strip().strip('"').strip("'")
-                os.environ.setdefault(key, value)
+                if overwrite:
+                    os.environ[key] = value
+                else:
+                    os.environ.setdefault(key, value)
     except Exception as e:
         print(f"加载 API/.env 失败: {e}")
 ensure_runtime_config_files()
@@ -1361,7 +1399,7 @@ def default_runninghub_static_provider():
     }
 
 def mutate_static_runninghub_provider(mutator):
-    os.makedirs(STATIC_RUNNINGHUB_DIR, exist_ok=True)
+    os.makedirs(os.path.dirname(STATIC_RUNNINGHUB_API_PROVIDERS_FILE), exist_ok=True)
     raw = []
     if os.path.exists(STATIC_RUNNINGHUB_API_PROVIDERS_FILE):
         try:
@@ -1547,17 +1585,6 @@ def update_env_values(updates):
 
 BACKEND_LOCAL_LOAD = {addr: 0 for addr in COMFYUI_INSTANCES}
 
-os.makedirs(OUTPUT_DIR, exist_ok=True)
-os.makedirs(ASSETS_DIR, exist_ok=True)
-os.makedirs(OUTPUT_INPUT_DIR, exist_ok=True)
-os.makedirs(OUTPUT_OUTPUT_DIR, exist_ok=True)
-os.makedirs(ASSET_LIBRARY_DIR, exist_ok=True)
-os.makedirs(LOCAL_UPLOAD_DIR, exist_ok=True)
-os.makedirs(STATIC_DIR, exist_ok=True)
-os.makedirs(WORKFLOW_DIR, exist_ok=True)
-os.makedirs(CONVERSATION_DIR, exist_ok=True)
-os.makedirs(CANVAS_DIR, exist_ok=True)
-
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 app.mount("/output", StaticFiles(directory=OUTPUT_DIR), name="output")
 app.mount("/assets", StaticFiles(directory=ASSETS_DIR), name="assets")
@@ -1565,7 +1592,7 @@ app.mount("/assets", StaticFiles(directory=ASSETS_DIR), name="assets")
 # --- Pydantic 模型 ---
 
 def current_app_version():
-    version_file = os.path.join(BASE_DIR, "VERSION")
+    version_file = os.path.join(APP_RESOURCE_DIR, "VERSION")
     try:
         if os.path.exists(version_file):
             with open(version_file, "r", encoding="utf-8") as f:
@@ -1700,33 +1727,10 @@ def versioned_static_html(html: str) -> str:
     return pattern.sub(replace, html)
 
 def sync_static_html_versions():
-    version = current_app_version()
-    if not version:
-        return
-    safe_version = urllib.parse.quote(version, safe="._-")
-    try:
-        for name in os.listdir(STATIC_DIR):
-            # 跳过 macOS 在外置硬盘(ExFAT/NTFS)生成的 ._* Apple Double 元数据文件，
-            # 这些是二进制文件，按 UTF-8 读取会抛 UnicodeDecodeError。
-            if name.startswith("._"):
-                continue
-            if not name.lower().endswith(".html"):
-                continue
-            path = os.path.join(STATIC_DIR, name)
-            if not os.path.isfile(path):
-                continue
-            # 单文件容错：某个文件读写失败不应中断整批同步。
-            try:
-                with open(path, "r", encoding="utf-8") as f:
-                    old = f.read()
-                new = versioned_static_html(re.sub(r'([?&]v=)[^"\'`\s<>)]*', rf'\g<1>{safe_version}', old))
-                if new != old:
-                    with open(path, "w", encoding="utf-8", newline="") as f:
-                        f.write(new)
-            except Exception as e:
-                print(f"同步静态页面版本号失败({name}): {e}")
-    except Exception as e:
-        print(f"同步静态页面版本号失败: {e}")
+    # Static files are application resources.  In a PyInstaller one-file build
+    # they live in a temporary extraction directory, so cache-busting must not
+    # mutate them. Browsers already receive a fresh resource bundle per EXE.
+    return
 
 def static_html_response(filename: str):
     path = os.path.join(STATIC_DIR, filename)
@@ -1850,6 +1854,9 @@ def app_info():
     version = current_app_version()
     return {
         "version": version,
+        "packaged": RUNNING_FROZEN,
+        "update_mode": "download_exe",
+        "release_url": f"{GITHUB_REPO_URL}/releases/latest",
         "repo_url": GITHUB_REPO_URL,
         "version_url": GITHUB_VERSION_URL,
         "tree_url": GITHUB_TREE_URL,
@@ -1871,6 +1878,107 @@ def app_info():
         },
         "update_notes": read_local_update_notes(version),
     }
+
+USER_DATA_IMPORT_ITEMS = (
+    "data", "assets", "output", "workflows", "history.json", "global_config.json", "API",
+)
+
+def _user_data_item_path(root: str, name: str) -> str:
+    return os.path.abspath(os.path.join(root, name))
+
+def _copy_path(source: str, destination: str) -> None:
+    if os.path.isdir(source):
+        shutil.copytree(source, destination)
+    else:
+        os.makedirs(os.path.dirname(destination), exist_ok=True)
+        shutil.copy2(source, destination)
+
+def _remove_path(path: str) -> None:
+    if os.path.isdir(path) and not os.path.islink(path):
+        shutil.rmtree(path)
+    elif os.path.lexists(path):
+        os.unlink(path)
+
+def user_data_status(mark_seen: bool = False) -> Dict[str, Any]:
+    marker = os.path.join(USER_DATA_DIR, ".welcome_seen")
+    first_run = not os.path.exists(marker)
+    if mark_seen and first_run:
+        with open(marker, "w", encoding="utf-8") as f:
+            f.write("1\n")
+    return {
+        "user_data_dir": USER_DATA_DIR,
+        "first_run": first_run,
+        "packaged": RUNNING_FROZEN,
+    }
+
+def create_user_data_import_backup() -> str:
+    stamp = time.strftime("%Y%m%d-%H%M%S")
+    backup_root = os.path.join(USER_DATA_DIR, "import_backups", stamp)
+    os.makedirs(backup_root, exist_ok=False)
+    for name in USER_DATA_IMPORT_ITEMS:
+        source = _user_data_item_path(USER_DATA_DIR, name)
+        if os.path.exists(source):
+            _copy_path(source, _user_data_item_path(backup_root, name))
+    return backup_root
+
+def import_legacy_user_data(source_dir: str) -> Dict[str, Any]:
+    source_root = os.path.abspath(os.path.expanduser(str(source_dir or "").strip()))
+    if not source_root or not os.path.isdir(source_root):
+        raise HTTPException(status_code=400, detail="请选择有效的旧项目文件夹")
+    if os.path.samefile(source_root, USER_DATA_DIR):
+        raise HTTPException(status_code=400, detail="不能导入当前用户数据目录")
+    available = [name for name in USER_DATA_IMPORT_ITEMS if os.path.exists(_user_data_item_path(source_root, name))]
+    legacy_runninghub_provider = os.path.join(source_root, "static", "runninghub", "api_providers.json")
+    if os.path.isfile(legacy_runninghub_provider):
+        available.append("static/runninghub/api_providers.json")
+    if not available:
+        raise HTTPException(status_code=400, detail="所选文件夹中没有可导入的 Infinite Canvas 数据")
+    backup_dir = create_user_data_import_backup()
+    imported = []
+    try:
+        for name in available:
+            if name == "static/runninghub/api_providers.json":
+                shutil.copy2(legacy_runninghub_provider, STATIC_RUNNINGHUB_API_PROVIDERS_FILE)
+                imported.append(name)
+                continue
+            source = _user_data_item_path(source_root, name)
+            target = _user_data_item_path(USER_DATA_DIR, name)
+            _remove_path(target)
+            _copy_path(source, target)
+            imported.append(name)
+        ensure_user_data_layout()
+        load_env_file(overwrite=True)
+        reload_env_globals()
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"导入失败，当前数据已备份到：{backup_dir}。{exc}") from exc
+    return {"ok": True, "imported": imported, "backup_dir": backup_dir}
+
+class LegacyImportRequest(BaseModel):
+    source_dir: str = ""
+
+@app.get("/api/user-data/status")
+def get_user_data_status():
+    return user_data_status(mark_seen=True)
+
+@app.post("/api/user-data/import")
+def import_user_data(payload: LegacyImportRequest):
+    return import_legacy_user_data(payload.source_dir)
+
+@app.post("/api/user-data/import-dialog")
+def import_user_data_with_dialog():
+    try:
+        import tkinter as tk
+        from tkinter import filedialog
+        root = tk.Tk()
+        root.withdraw()
+        root.attributes("-topmost", True)
+        selected = filedialog.askdirectory(parent=root, title="选择旧 Infinite Canvas 项目文件夹")
+        root.destroy()
+    except Exception as exc:
+        raise HTTPException(status_code=501, detail=f"无法打开文件夹选择器：{exc}") from exc
+    if not selected:
+        return {"ok": False, "cancelled": True}
+    return import_legacy_user_data(selected)
 
 def connectivity_probe(name: str, url: str, timeout: float = 5.0) -> Dict[str, Any]:
     started = time.time()
@@ -2453,6 +2561,10 @@ def create_update_backup(
 
 @app.post("/api/update-from-github")
 def update_from_github(req: UpdateRequest = UpdateRequest()):
+    raise HTTPException(
+        status_code=410,
+        detail="应用内覆盖更新已禁用。请下载新版 Infinite-Canvas.exe 后替换旧文件；用户数据不会受影响。",
+    )
     if not UPDATE_LOCK.acquire(blocking=False):
         raise HTTPException(status_code=409, detail="正在更新中，请稍后再试")
     staging_root = ""
@@ -2643,6 +2755,10 @@ class RollbackRequest(BaseModel):
 
 @app.post("/api/update-rollback")
 def rollback_update(req: RollbackRequest):
+    raise HTTPException(
+        status_code=410,
+        detail="应用内版本回滚已禁用。请替换为对应版本的 EXE；用户数据不会受影响。",
+    )
     if not req.name:
         raise HTTPException(status_code=400, detail="缺少备份名称")
     if not UPDATE_LOCK.acquire(blocking=False):
@@ -5016,7 +5132,7 @@ def gpt_image_2_skill_auth_file():
     configured = str(codex_env_value("GPT_IMAGE_2_SKILL_AUTH_FILE") or codex_env_value("CODEX_AUTH_FILE") or "").strip()
     if configured:
         return configured
-    project_auth = os.path.join(BASE_DIR, "API", "openai-gpt-account-auth.json")
+    project_auth = os.path.join(os.path.dirname(API_ENV_FILE), "openai-gpt-account-auth.json")
     user_profile = os.getenv("USERPROFILE", "").strip()
     candidates = [
         project_auth,
@@ -7808,16 +7924,16 @@ def shared_folder_by_id(folder_id):
 
 def shared_folder_abs(entry):
     rel = (entry or {}).get("rel") or ""
-    return os.path.normpath(os.path.join(BASE_DIR, rel))
+    return os.path.normpath(os.path.join(USER_DATA_DIR, rel))
 
 def shared_resolve_register(path):
     """校验 path 必须位于项目目录内、是一个存在的子目录（非项目根）。返回 (abs, rel)。"""
     raw = (path or "").strip().strip('"').strip("'")
     if not raw:
         raise HTTPException(status_code=400, detail="请提供文件夹路径")
-    candidate = raw if os.path.isabs(raw) else os.path.join(BASE_DIR, raw)
+    candidate = raw if os.path.isabs(raw) else os.path.join(USER_DATA_DIR, raw)
     abs_path = os.path.normpath(os.path.abspath(candidate))
-    base = os.path.normpath(os.path.abspath(BASE_DIR))
+    base = os.path.normpath(os.path.abspath(USER_DATA_DIR))
     try:
         common = os.path.commonpath([abs_path, base])
     except ValueError:
@@ -18200,7 +18316,7 @@ def generate(req: GenerateRequest):
                     except Exception as e:
                         print(f"Sync upload failed: {e}")
 
-        workflow_path = os.path.join(WORKFLOW_DIR, req.workflow_json)
+        workflow_path = workflow_path_from_name(req.workflow_json)
         if not os.path.exists(workflow_path) and req.workflow_json == "Z-Image.json":
             workflow_path = WORKFLOW_PATH
         if not os.path.exists(workflow_path):
@@ -18418,8 +18534,9 @@ class WorkflowRunRequest(BaseModel):
 def workflow_path_from_name(name: str) -> str:
     if not WORKFLOW_NAME_RE.match(name):
         raise HTTPException(status_code=400, detail="Invalid workflow name")
-    path = os.path.abspath(os.path.join(WORKFLOW_DIR, *name.split("/")))
-    workflow_root = os.path.abspath(WORKFLOW_DIR)
+    workflow_root = RESOURCE_WORKFLOW_DIR if is_builtin_workflow(name) else USER_WORKFLOW_DIR
+    path = os.path.abspath(os.path.join(workflow_root, *name.split("/")))
+    workflow_root = os.path.abspath(workflow_root)
     if os.path.commonpath([workflow_root, path]) != workflow_root:
         raise HTTPException(status_code=400, detail="Invalid workflow name")
     return path
@@ -18891,16 +19008,14 @@ def save_comfyui_instances(payload: ComfyInstancesPayload):
 
 @app.get("/api/workflows")
 def list_workflows():
-    if not os.path.isdir(WORKFLOW_DIR):
-        return {"workflows": []}
     items = []
-    for root, dirs, files in os.walk(WORKFLOW_DIR):
-        if os.path.abspath(root) == os.path.abspath(WORKFLOW_DIR):
-            dirs[:] = [d for d in dirs if d in {CUSTOM_WORKFLOW_FOLDER, LEGACY_CUSTOM_WORKFLOW_FOLDER}]
+    if not os.path.isdir(USER_WORKFLOW_DIR):
+        return {"workflows": items}
+    for root, _dirs, files in os.walk(USER_WORKFLOW_DIR):
         for fn in sorted(files):
             if not fn.endswith(".json") or fn.endswith(".config.json"):
                 continue
-            rel = os.path.relpath(os.path.join(root, fn), WORKFLOW_DIR).replace("\\", "/")
+            rel = os.path.relpath(os.path.join(root, fn), USER_WORKFLOW_DIR).replace("\\", "/")
             if is_builtin_workflow(rel):
                 continue
             cfg = {}
@@ -18952,7 +19067,7 @@ def upload_workflow(payload: WorkflowUploadRequest):
     sample = next(iter(payload.workflow.values()), None)
     if not isinstance(sample, dict) or "class_type" not in sample:
         raise HTTPException(status_code=400, detail="不是有效的 ComfyUI API 工作流 JSON（需包含 class_type）")
-    custom_dir = os.path.join(WORKFLOW_DIR, CUSTOM_WORKFLOW_FOLDER)
+    custom_dir = os.path.join(USER_WORKFLOW_DIR, CUSTOM_WORKFLOW_FOLDER)
     os.makedirs(custom_dir, exist_ok=True)
     stored_name = f"{CUSTOM_WORKFLOW_FOLDER}/{name}"
     path = workflow_path_from_name(stored_name)
@@ -19029,10 +19144,13 @@ def run_workflow(name: str, payload: WorkflowRunRequest):
     )
     return generate(req)
 
-if __name__ == "__main__":
+def run_server():
     import uvicorn
     # 关闭服务端协议级 WebSocket ping：部分客户端（如 PS UXP 面板）不会自动回 pong，
     # 默认 20s ping/20s 超时会把这些连接每隔一会儿就踢掉造成"频繁断连"。
     # 客户端有自己的应用层心跳 + 断线重连兜底，这里禁用协议 ping 更稳。
     uvicorn.run(app, host="0.0.0.0", port=3000,
                 ws_ping_interval=None, ws_ping_timeout=None)
+
+if __name__ == "__main__":
+    run_server()
