@@ -78,3 +78,9 @@ class UserDataPathTests(unittest.TestCase):
             main.workflow_path_from_name("custom/demo.json"),
             os.path.abspath(str(self.user_data / "workflows" / "custom" / "demo.json")),
         )
+
+    def test_windowed_package_disables_uvicorn_default_logging(self):
+        with patch("uvicorn.run") as run, patch.object(main, "RUNNING_FROZEN", True):
+            main.run_server()
+        self.assertIsNone(run.call_args.kwargs["log_config"])
+        self.assertFalse(run.call_args.kwargs["access_log"])
