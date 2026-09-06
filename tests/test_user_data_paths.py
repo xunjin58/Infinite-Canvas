@@ -84,3 +84,9 @@ class UserDataPathTests(unittest.TestCase):
             main.run_server()
         self.assertIsNone(run.call_args.kwargs["log_config"])
         self.assertFalse(run.call_args.kwargs["access_log"])
+
+    def test_missing_stderr_disables_uvicorn_default_logging(self):
+        with patch("uvicorn.run") as run, patch.object(main, "RUNNING_FROZEN", False), patch.object(main.sys, "stderr", None):
+            main.run_server()
+        self.assertIsNone(run.call_args.kwargs["log_config"])
+        self.assertFalse(run.call_args.kwargs["access_log"])

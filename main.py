@@ -19155,10 +19155,10 @@ def run_server(shutdown_event=None):
         "ws_ping_interval": None,
         "ws_ping_timeout": None,
     }
-    # A windowed PyInstaller executable intentionally has no stderr handle.
-    # Uvicorn's default formatter calls stderr.isatty(), so skip that logging
-    # configuration only for the GUI build.
-    if RUNNING_FROZEN:
+    # Windowed PyInstaller builds may not expose a stderr handle. Uvicorn's
+    # default formatter calls stderr.isatty(), so bypass it whenever stderr is
+    # unavailable, including launchers that do not set sys.frozen.
+    if RUNNING_FROZEN or sys.stderr is None:
         kwargs.update({"log_config": None, "access_log": False})
     if shutdown_event is None:
         uvicorn.run(app, **kwargs)
