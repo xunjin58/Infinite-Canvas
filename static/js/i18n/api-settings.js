@@ -3,7 +3,7 @@
     window.StudioI18n.register({
         "api.title": { zh: "API 设置", en: "API Settings" },
         "api.subtitle": { zh: "管理平台地址、模型列表和 Key。Key 写入后端 env，页面不会回显完整内容。", en: "Manage provider URLs, model lists, and keys. Keys are saved to the backend env and are never fully shown here." },
-        "api.addProvider": { zh: "新增平台", en: "Add Provider" },
+        "api.addProvider": { zh: "导入 API", en: "Import API" },
         "api.getApi": { zh: "获取API", en: "Get API" },
         "api.recommendApi": { zh: "推荐API", en: "Recommended APIs" },
         "api.cliSettings": { zh: "CLI 设置", en: "CLI Settings" },

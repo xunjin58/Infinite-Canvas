@@ -3496,17 +3496,11 @@ function removeMsLora(index){
 }
 function selectProvider(id){
     if(isProviderTemporarilyHidden(providers.find(item => item.id === id))) return;
-    recommendInlineOpen = false;
-    syncRecommendView();
-    renderRecommendApi();
     syncEditor();
     selectedId = id;
     renderEditor();
 }
 function addProvider(){
-    recommendInlineOpen = false;
-    syncRecommendView();
-    renderRecommendApi();
     syncEditor();
     let id = 'custom-api';
     let index = 2;
@@ -3700,7 +3694,6 @@ async function loadProviders(){
         providers = data.providers || [];
         selectedId = sortedProviders()[0]?.id || '';
         renderEditor();
-        openRecommendApi();
         setStatus('');
     } catch(err) {
         setStatus(tr('api.loadFailed'));
