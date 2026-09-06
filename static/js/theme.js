@@ -85,20 +85,10 @@
     }
 
     function autoScale(){
-        const dpr = Math.max(1, Number(window.devicePixelRatio || 1));
-        const viewportWidth = Math.max(320, Number(window.innerWidth || 0));
-        const viewportHeight = Math.max(320, Number(window.innerHeight || 0));
-        const compactRatio = Math.min(viewportWidth / 1500, viewportHeight / 940);
-        if(compactRatio < 1) {
-            return Math.max(0.68, Math.min(1, compactRatio));
-        }
-        const screenLong = Math.max(window.screen?.width || 0, window.screen?.height || 0);
-        const viewportLong = Math.max(viewportWidth, viewportHeight);
-        const longEdge = Math.max(screenLong, viewportLong);
-        if(dpr >= 1.35) return 1;
-        if(longEdge >= 3600) return 1.22;
-        if(longEdge >= 3000) return 1.16;
-        if(longEdge >= 2500 && dpr <= 1.15) return 1.1;
+        // The product baseline is a 1K display. Scaling the entire document
+        // with transform makes iframe content and composited layers blurry, so
+        // automatic mode stays at native CSS pixels. Responsive layouts handle
+        // narrow viewports; explicit scale choices remain available to users.
         return 1;
     }
 
@@ -150,29 +140,6 @@
         });
     }
 
-    let contentFitTimer = null;
-    function scheduleContentFit(mode){
-        clearTimeout(contentFitTimer);
-        if(mode !== 'auto' || scaleOptedOut() || contentFitOptedOut() || Number.isFinite(externalScaleValue)) return;
-        contentFitTimer = setTimeout(() => {
-            const root = document.documentElement;
-            if(!root.classList.contains('studio-ui-scaled')) return;
-            const current = Number(getComputedStyle(root).getPropertyValue('--studio-ui-scale')) || 1;
-            const viewportWidth = Math.max(320, Number(window.innerWidth || 0));
-            const contentWidth = Math.max(
-                viewportWidth,
-                root.scrollWidth || 0,
-                document.body?.scrollWidth || 0,
-                document.body?.offsetWidth || 0
-            );
-            const fitted = Math.max(0.58, Math.min(current, viewportWidth / contentWidth));
-            if(fitted < current - 0.006) {
-                root.style.setProperty('--studio-ui-scale', fitted.toFixed(3));
-                lockScaledHorizontalScroll();
-            }
-        }, 80);
-    }
-
     function applyScale(mode){
         ensureScaleStyle();
         const next = normalizeScaleMode(mode);
@@ -184,7 +151,6 @@
         document.documentElement.style.setProperty('--studio-ui-scale', value.toFixed(3));
         updateScaleBodyClasses();
         lockScaledHorizontalScroll();
-        scheduleContentFit(next);
         window.dispatchEvent(new CustomEvent('studio-ui-scale-change', { detail: { mode: next, scale: value } }));
     }
 
