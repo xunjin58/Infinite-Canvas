@@ -20,6 +20,7 @@ a = Analysis(
         "uvicorn.loops.auto",
         "uvicorn.protocols.http.auto",
         "uvicorn.protocols.websockets.auto",
+        "pystray._win32",
     ],
     hookspath=[],
     hooksconfig={},

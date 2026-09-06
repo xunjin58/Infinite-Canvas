@@ -19144,7 +19144,7 @@ def run_workflow(name: str, payload: WorkflowRunRequest):
     )
     return generate(req)
 
-def run_server():
+def run_server(shutdown_event=None):
     import uvicorn
     # 关闭服务端协议级 WebSocket ping：部分客户端（如 PS UXP 面板）不会自动回 pong，
     # 默认 20s ping/20s 超时会把这些连接每隔一会儿就踢掉造成"频繁断连"。
@@ -19160,7 +19160,18 @@ def run_server():
     # configuration only for the GUI build.
     if RUNNING_FROZEN:
         kwargs.update({"log_config": None, "access_log": False})
-    uvicorn.run(app, **kwargs)
+    if shutdown_event is None:
+        uvicorn.run(app, **kwargs)
+        return
+
+    server = uvicorn.Server(uvicorn.Config(app, **kwargs))
+
+    def request_shutdown_when_requested():
+        shutdown_event.wait()
+        server.should_exit = True
+
+    Thread(target=request_shutdown_when_requested, daemon=True).start()
+    server.run()
 
 if __name__ == "__main__":
     run_server()
