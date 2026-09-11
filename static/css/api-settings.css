@@ -5955,6 +5955,67 @@ html.studio-theme-dark body .recommend-tag.recommend-free-tag svg {
     }
 }
 
+/* Customer mode: one quiet, purpose-built Key form. The full editor remains
+   available only when the server explicitly enables advanced settings. */
+.simple-settings { display:none; max-width:620px; margin:42px auto 0; }
+body.api-settings-pending .layout { visibility:hidden; }
+body.simple-api-settings .layout { display:none; }
+body.simple-api-settings .simple-settings { display:block; }
+body.simple-api-settings .page-head { max-width:620px; margin-inline:auto; }
+body.simple-api-settings .page-head .sub { font-size:12px; }
+.simple-settings-card {
+    position:relative;
+    overflow:hidden;
+    padding:34px;
+    border:1px solid var(--line);
+    border-radius:20px;
+    background:var(--panel);
+    box-shadow:0 22px 50px rgba(15,23,42,.07);
+}
+.simple-settings-card::after {
+    content:"";
+    position:absolute;
+    inset:0 auto 0 0;
+    width:4px;
+    background:var(--text);
+    opacity:.92;
+}
+.simple-settings-kicker { color:var(--muted); font-size:10px; font-weight:900; letter-spacing:.16em; }
+.simple-settings-card h1 { margin:9px 0 7px; color:var(--text); font-size:25px; line-height:1.15; font-weight:950; letter-spacing:-.035em; }
+.simple-settings-card p { margin:0; color:var(--muted); font-size:12px; font-weight:650; line-height:1.65; }
+.simple-key-field { display:flex; flex-direction:column; gap:8px; margin-top:28px; }
+.simple-key-field span { color:var(--muted); font-size:11px; font-weight:850; letter-spacing:.03em; }
+.simple-key-field input {
+    width:100%;
+    height:48px;
+    box-sizing:border-box;
+    padding:0 14px;
+    border:1px solid var(--line);
+    border-radius:12px;
+    outline:none;
+    background:var(--soft);
+    color:var(--text);
+    font-size:13px;
+    font-weight:700;
+    transition:border-color .15s ease, box-shadow .15s ease;
+}
+.simple-key-field input:focus { border-color:var(--text); box-shadow:0 0 0 3px rgba(15,23,42,.08); }
+.simple-settings-actions { display:flex; align-items:center; gap:12px; margin-top:16px; }
+.simple-settings-actions .save-btn { min-width:108px; background:var(--text); color:var(--bg); border-color:var(--text); }
+.simple-settings-actions .save-btn:hover { transform:translateY(-1px); box-shadow:0 8px 18px rgba(15,23,42,.18); }
+.simple-settings-actions .save-btn:disabled { opacity:.55; cursor:wait; transform:none; box-shadow:none; }
+.simple-key-hint { color:var(--muted); font-size:11px; font-weight:700; line-height:1.4; }
+body.studio-theme-dark .simple-settings-card,
+html.studio-theme-dark body .simple-settings-card { box-shadow:0 22px 50px rgba(0,0,0,.23); }
+body.studio-theme-dark .simple-key-field input,
+html.studio-theme-dark body .simple-key-field input { border-color:var(--line-strong); background:var(--soft); }
+body.studio-theme-dark .simple-key-field input:focus,
+html.studio-theme-dark body .simple-key-field input:focus { box-shadow:0 0 0 3px rgba(255,255,255,.08); }
+@media (max-width:680px) {
+    .simple-settings { margin-top:24px; }
+    .simple-settings-card { padding:26px 22px; border-radius:16px; }
+}
+
 /* ===== DX-OS 项目迁移横幅 ===== */
 .dx-os-banner {
     position:relative;

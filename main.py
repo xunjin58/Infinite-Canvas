@@ -749,6 +749,45 @@ def provider_key_env(provider_id):
         return "ARK_API_KEY"
     return f"API_PROVIDER_{re.sub(r'[^A-Za-z0-9]', '_', provider_id).upper()}_KEY"
 
+
+# The packaged customer experience deliberately has one, immutable API route.
+# Development keeps the original multi-provider console behind an explicit opt-in.
+CUSTOMER_API_PROVIDER_ID = "custom-api"
+CUSTOMER_API_BASE_URL = "https://mid.aiturn.top"
+CUSTOMER_API_IMAGE_MODELS = ["gpt-image-2"]
+CUSTOMER_API_CHAT_MODELS = ["gpt-5.6-terra"]
+
+
+def api_settings_advanced() -> bool:
+    """Whether this process may expose and use the multi-provider settings."""
+    return str(os.getenv("API_SETTINGS_ADVANCED", "")).strip().lower() in {"1", "true", "yes", "on"}
+
+
+def customer_api_provider() -> dict:
+    """Return a fresh copy so request code cannot mutate the fixed customer config."""
+    return {
+        "id": CUSTOMER_API_PROVIDER_ID,
+        "name": "API",
+        "base_url": CUSTOMER_API_BASE_URL,
+        "protocol": "openai",
+        "image_request_mode": "openai",
+        "image_generation_endpoint": "",
+        "image_edit_endpoint": "",
+        "enabled": True,
+        "primary": True,
+        "image_models": list(CUSTOMER_API_IMAGE_MODELS),
+        "chat_models": list(CUSTOMER_API_CHAT_MODELS),
+        "video_models": [],
+        "model_names": {},
+        "model_protocols": {},
+        "ms_loras": [],
+        "ms_defaults_version": 0,
+        "rh_apps": [],
+        "rh_workflows": [],
+        "volcengine_project_name": "",
+        "volcengine_region": "",
+    }
+
 def runninghub_wallet_key_env():
     return "RUNNINGHUB_WALLET_API_KEY"
 
@@ -1372,6 +1411,18 @@ def load_api_providers():
         print(f"加载 API 平台配置失败: {e}")
         return defaults
 
+
+def runtime_api_providers():
+    """Providers available to public clients and generation code in this mode."""
+    if api_settings_advanced():
+        return load_api_providers()
+    return [customer_api_provider()]
+
+
+def require_advanced_api_settings():
+    if not api_settings_advanced():
+        raise HTTPException(status_code=404, detail="此功能仅在高级 API 设置模式中可用")
+
 def save_api_providers(providers):
     os.makedirs(DATA_DIR, exist_ok=True)
     with GLOBAL_CONFIG_LOCK:
@@ -1494,11 +1545,11 @@ def public_provider(provider):
     return item
 
 def public_api_providers():
-    return [public_provider(p) for p in load_api_providers()]
+    return [public_provider(p) for p in runtime_api_providers()]
 
 def get_primary_provider_id(providers=None):
     """返回当前首选 provider 的 id；优先 primary=True 的，否则取第一个非 modelscope 的，再次取第一个。"""
-    providers = providers if providers is not None else load_api_providers()
+    providers = providers if providers is not None else runtime_api_providers()
     primary = next((p for p in providers if p.get("primary") and p.get("enabled", True)), None)
     if primary:
         return primary["id"]
@@ -1508,7 +1559,7 @@ def get_primary_provider_id(providers=None):
     return providers[0]["id"] if providers else "modelscope"
 
 def get_api_provider(provider_id="comfly"):
-    providers = load_api_providers()
+    providers = runtime_api_providers()
     target = (provider_id or "").strip().lower()
     # 兼容旧的 "comfly" 硬编码：若 comfly 不存在或未指定，回退到首选 provider
     if not target or not any(p["id"] == target for p in providers):
@@ -1521,7 +1572,7 @@ def get_api_provider(provider_id="comfly"):
     return provider
 
 def get_api_provider_exact(provider_id: str):
-    providers = load_api_providers()
+    providers = runtime_api_providers()
     target = (provider_id or "").strip().lower()
     provider = next((p for p in providers if p["id"] == target), None)
     if not provider:
@@ -4019,7 +4070,7 @@ def display_title(text):
     return title[:24] or "新对话"
 
 def resolve_chat_provider(provider: str, model: str, ms_model: str):
-    if provider == "modelscope":
+    if provider == "modelscope" and api_settings_advanced():
         clean_token = modelscope_api_key()
         if not clean_token:
             raise HTTPException(status_code=400, detail="未配置 ModelScope API Key，请在 API 设置中填写。")
@@ -10113,6 +10164,7 @@ def runninghub_json_headers(provider, use_wallet=True):
     return runninghub_api_headers(provider, use_wallet=use_wallet)
 
 def runninghub_provider():
+    require_advanced_api_settings()
     return get_api_provider_exact("runninghub")
 
 def runninghub_api_key(provider=None, use_wallet=False, prefer_wallet=False):
@@ -11620,7 +11672,7 @@ def chat_split_parallel_prompts(prompt, count):
     return [f"{item}的{suffix}" for item in candidates[:count]]
 
 def pick_chat_image_provider(provider_id="", fallback_id=""):
-    providers = [p for p in load_api_providers() if p.get("enabled", True) and (p.get("image_models") or [])]
+    providers = [p for p in runtime_api_providers() if p.get("enabled", True) and (p.get("image_models") or [])]
     for target in (provider_id, fallback_id):
         clean = str(target or "").strip().lower()
         if clean:
@@ -12828,7 +12880,8 @@ async def runninghub_workflow_info(workflowId: str = ""):
 
 @app.get("/api/runninghub/workflows")
 def list_runninghub_workflows():
-    providers = load_api_providers()
+    require_advanced_api_settings()
+    providers = runtime_api_providers()
     hidden_ids = runninghub_saved_hidden_workflow_ids()
     for provider in providers:
         if provider.get("id") != "runninghub":
@@ -12869,6 +12922,7 @@ def list_runninghub_workflows():
 
 @app.get("/api/runninghub/workflows/{workflow_id:path}")
 def get_runninghub_workflow(workflow_id: str):
+    require_advanced_api_settings()
     key = runninghub_workflow_store_key(workflow_id)
     if not key:
         raise HTTPException(status_code=400, detail="workflowId 必填")
@@ -12883,6 +12937,7 @@ def get_runninghub_workflow(workflow_id: str):
 
 @app.post("/api/runninghub/workflows/fetch")
 async def fetch_runninghub_workflow(payload: RunningHubWorkflowConfig):
+    require_advanced_api_settings()
     workflow_id = runninghub_workflow_store_key(payload.workflowId)
     if not workflow_id:
         raise HTTPException(status_code=400, detail="workflowId 必填")
@@ -12915,6 +12970,7 @@ async def fetch_runninghub_workflow(payload: RunningHubWorkflowConfig):
 
 @app.put("/api/runninghub/workflows/{workflow_id:path}")
 def save_runninghub_workflow(workflow_id: str, payload: RunningHubWorkflowConfig):
+    require_advanced_api_settings()
     key = runninghub_workflow_store_key(workflow_id)
     if not key:
         raise HTTPException(status_code=400, detail="workflowId 必填")
@@ -12941,6 +12997,7 @@ def save_runninghub_workflow(workflow_id: str, payload: RunningHubWorkflowConfig
 
 @app.delete("/api/runninghub/workflows/{workflow_id:path}")
 def delete_runninghub_workflow(workflow_id: str):
+    require_advanced_api_settings()
     key = runninghub_workflow_store_key(workflow_id)
     if not key:
         raise HTTPException(status_code=400, detail="workflowId 必填")
@@ -13317,32 +13374,65 @@ async def jimeng_query_media(payload: JimengQueryMediaRequest):
 
 @app.get("/api/config")
 async def ai_config():
-    preferred_chat_model = next((m for m in CHAT_MODELS if m == "gpt-5.5"), CHAT_MODELS[0] if CHAT_MODELS else CHAT_MODEL)
     providers = public_api_providers()
+    simple_mode = not api_settings_advanced()
+    active_provider = providers[0] if providers else None
+    chat_models = list(active_provider.get("chat_models") or []) if simple_mode and active_provider else CHAT_MODELS
+    image_models = list(active_provider.get("image_models") or []) if simple_mode and active_provider else IMAGE_MODELS
+    video_models = list(active_provider.get("video_models") or []) if simple_mode and active_provider else VIDEO_MODELS
+    preferred_chat_model = chat_models[0] if simple_mode and chat_models else next((m for m in CHAT_MODELS if m == "gpt-5.5"), CHAT_MODELS[0] if CHAT_MODELS else CHAT_MODEL)
     return {
-        "base_url": AI_BASE_URL,
+        "base_url": active_provider.get("base_url") if simple_mode and active_provider else AI_BASE_URL,
         "chat_model": preferred_chat_model,
-        "image_model": IMAGE_MODEL,
-        "chat_models": CHAT_MODELS,
-        "image_models": IMAGE_MODELS,
-        "video_models": VIDEO_MODELS,
+        "image_model": image_models[0] if simple_mode and image_models else IMAGE_MODEL,
+        "chat_models": chat_models,
+        "image_models": image_models,
+        "video_models": video_models,
         "comfy_instances": COMFYUI_INSTANCES,
         "api_providers": providers,
-        "has_api_key": bool(AI_API_KEY),
-        "ms_chat_models": MODELSCOPE_CHAT_MODELS,
-        "has_ms_key": bool(modelscope_api_key()),
+        "api_settings_mode": "advanced" if api_settings_advanced() else "simple",
+        "has_api_key": bool(provider_env_key_value(CUSTOMER_API_PROVIDER_ID)) if simple_mode else bool(AI_API_KEY),
+        "ms_chat_models": MODELSCOPE_CHAT_MODELS if api_settings_advanced() else [],
+        "has_ms_key": bool(modelscope_api_key()) if api_settings_advanced() else False,
     }
 
 @app.get("/api/models")
 async def ai_models():
+    if not api_settings_advanced():
+        provider = customer_api_provider()
+        return {"chat_models": provider["chat_models"], "image_models": provider["image_models"], "video_models": provider["video_models"]}
     return {"chat_models": CHAT_MODELS, "image_models": IMAGE_MODELS, "video_models": VIDEO_MODELS}
 
 @app.get("/api/providers")
 async def api_providers():
-    return {"providers": public_api_providers()}
+    return {"mode": "advanced" if api_settings_advanced() else "simple", "providers": public_api_providers()}
 
 @app.put("/api/providers")
 async def save_providers(payload: List[ApiProviderPayload]):
+    if not api_settings_advanced():
+        if len(payload) != 1 or payload[0].id.strip().lower() != CUSTOMER_API_PROVIDER_ID:
+            raise HTTPException(status_code=400, detail="客户模式只能保存当前 API Key")
+        item = payload[0]
+        fixed = customer_api_provider()
+        immutable_fields = {
+            "name": fixed["name"],
+            "base_url": fixed["base_url"],
+            "protocol": fixed["protocol"],
+            "image_models": fixed["image_models"],
+            "chat_models": fixed["chat_models"],
+            "video_models": fixed["video_models"],
+        }
+        fields_set = item.model_fields_set if hasattr(item, "model_fields_set") else item.__fields_set__
+        for field, expected in immutable_fields.items():
+            if field in fields_set and getattr(item, field) != expected:
+                raise HTTPException(status_code=400, detail="客户模式不允许修改 API 地址或模型配置")
+        if item.clear_key:
+            update_env_values({provider_key_env(CUSTOMER_API_PROVIDER_ID): ""})
+        elif item.api_key is not None and item.api_key.strip():
+            update_env_values({provider_key_env(CUSTOMER_API_PROVIDER_ID): item.api_key.strip()})
+        reload_env_globals()
+        return {"mode": "simple", "providers": public_api_providers()}
+
     providers = []
     env_updates = {}
     # 收集每个 item 的 primary 字段
@@ -13409,6 +13499,7 @@ async def save_providers(payload: List[ApiProviderPayload]):
 
 @app.get("/api/config/token")
 async def get_global_token():
+    require_advanced_api_settings()
     # 优先读 env，回退到 global_config.json（兼容旧数据）
     saved_token = modelscope_api_key()
     if saved_token:
@@ -14747,11 +14838,10 @@ def build_image_param_fields(engine: str, provider: dict, model: str):
 
 @app.get("/api/image-params")
 async def image_params(provider_id: str = "", model: str = ""):
-    providers = load_api_providers()
-    provider = next((p for p in providers if p.get("id") == (provider_id or "").strip().lower()), None) or {}
+    provider = get_api_provider(provider_id)
     if is_runninghub_provider(provider):
         engine = "runninghub"
-    elif (provider_id or "").strip().lower() == "modelscope":
+    elif provider.get("id") == "modelscope":
         engine = "modelscope"
     elif is_volcengine_provider(provider):
         engine = "volcengine"
@@ -17910,6 +18000,7 @@ async def delete_history(req: DeleteHistoryRequest):
 
 @app.post("/api/angle/poll_status")
 async def poll_angle_cloud(req: CloudPollRequest):
+    require_advanced_api_settings()
     api_root = modelscope_image_api_root()
     clean_token = modelscope_api_key(req.api_key)
     if not clean_token:
@@ -17981,6 +18072,7 @@ async def poll_angle_cloud(req: CloudPollRequest):
 
 @app.post("/api/angle/generate")
 async def generate_angle_cloud(req: CloudGenRequest):
+    require_advanced_api_settings()
     api_root = modelscope_image_api_root()
     clean_token = modelscope_api_key(req.api_key)
     if not clean_token:
@@ -18075,6 +18167,7 @@ async def generate_angle_cloud(req: CloudGenRequest):
 
 @app.post("/generate")
 async def generate_cloud(req: CloudGenRequest):
+    require_advanced_api_settings()
     api_root = modelscope_image_api_root()
     clean_token = modelscope_api_key(req.api_key)
     if not clean_token:
@@ -18164,6 +18257,7 @@ async def generate_cloud(req: CloudGenRequest):
 
 @app.post("/api/ms/generate")
 async def ms_generate(req: MsGenerateRequest):
+    require_advanced_api_settings()
     api_root = modelscope_image_api_root()
     clean_token = modelscope_api_key(req.api_key)
     if not clean_token:
@@ -18702,7 +18796,7 @@ def runninghub_provider_workflow_config(workflow_id: str):
         return None
     if key in runninghub_saved_hidden_workflow_ids():
         return None
-    providers = load_api_providers()
+    providers = runtime_api_providers()
     provider = next((item for item in providers if item.get("id") == "runninghub"), None)
     if not provider:
         return None

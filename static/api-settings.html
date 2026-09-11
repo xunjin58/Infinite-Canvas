@@ -21,9 +21,9 @@
     <script src="/static/js/theme.js?v=2026.08.04.1785292593"></script>
     <script src="/static/js/i18n.js?v=2026.08.04.1785292592"></script>
     <link rel="stylesheet" href="/static/css/theme.css?v=2026.08.04.1785292588">
-    <link rel="stylesheet" href="/static/css/api-settings.css?v=2026.08.28.4">
+    <link rel="stylesheet" href="/static/css/api-settings.css?v=2026.09.11.1">
 </head>
-<body>
+<body class="api-settings-pending">
     <div class="page">
         <div class="wrap">
             <header class="page-head">
@@ -33,6 +33,22 @@
                 </div>
                 <div id="status" class="status"></div>
             </header>
+
+            <main id="simpleSettingsContent" class="simple-settings" hidden>
+                <section class="simple-settings-card">
+                    <div class="simple-settings-kicker">API ACCESS</div>
+                    <h1>连接 API</h1>
+                    <p>请输入 API Key，保存后即可开始使用。</p>
+                    <label class="simple-key-field" for="simpleKeyInput">
+                        <span>API Key</span>
+                        <input id="simpleKeyInput" type="password" autocomplete="off" placeholder="请输入 API Key">
+                    </label>
+                    <div class="simple-settings-actions">
+                        <button id="simpleSaveButton" class="action-btn save-btn" type="button" onclick="saveSimpleApiKey()"><i data-lucide="save" class="w-3.5 h-3.5"></i><span>保存 Key</span></button>
+                        <span id="simpleKeyHint" class="simple-key-hint" aria-live="polite"></span>
+                    </div>
+                </section>
+            </main>
 
             <div class="layout">
                 <aside class="sidebar">
@@ -497,6 +513,6 @@
     </div>
 
     <script src="/static/js/user-data.js"></script>
-    <script src="/static/js/api-settings.js?v=2026.08.28.1"></script>
+    <script src="/static/js/api-settings.js?v=2026.09.11.1"></script>
 </body>
 </html>

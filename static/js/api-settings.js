@@ -1,5 +1,6 @@
 let providers = [];
 let selectedId = '';
+let apiSettingsMode = 'advanced';
 const providerList = document.getElementById('providerList');
 const editorTitle = document.getElementById('editorTitle');
 const statusEl = document.getElementById('status');
@@ -11,6 +12,10 @@ const imageRequestModeInput = document.getElementById('imageRequestModeInput');
 const imageEditRouteInput = document.getElementById('imageEditRouteInput');
 const keyInput = document.getElementById('keyInput');
 const keyHint = document.getElementById('keyHint');
+const simpleSettingsContent = document.getElementById('simpleSettingsContent');
+const simpleKeyInput = document.getElementById('simpleKeyInput');
+const simpleKeyHint = document.getElementById('simpleKeyHint');
+const simpleSaveButton = document.getElementById('simpleSaveButton');
 const rhFreeKeyInput = document.getElementById('rhFreeKeyInput');
 const rhWalletKeyInput = document.getElementById('rhWalletKeyInput');
 const rhFreeKeyHint = document.getElementById('rhFreeKeyHint');
@@ -3692,11 +3697,64 @@ async function loadProviders(){
     try {
         const data = await fetch('/api/providers').then(r => r.json());
         providers = data.providers || [];
+        apiSettingsMode = data.mode || 'advanced';
+        const isSimple = apiSettingsMode === 'simple';
+        document.body.classList.toggle('simple-api-settings', isSimple);
+        document.body.classList.remove('api-settings-pending');
+        if(isSimple){
+            renderSimpleApiSettings();
+            setStatus('');
+            return;
+        }
+        if(simpleSettingsContent) simpleSettingsContent.hidden = true;
         selectedId = sortedProviders()[0]?.id || '';
         renderEditor();
         setStatus('');
     } catch(err) {
+        document.body.classList.remove('api-settings-pending');
         setStatus(tr('api.loadFailed'));
+    }
+}
+
+function renderSimpleApiSettings(){
+    const item = providers[0] || {};
+    const pageTitle = document.querySelector('.page-head .title');
+    const pageSubtitle = document.querySelector('.page-head .sub');
+    if(pageTitle) pageTitle.textContent = 'API 设置';
+    if(pageSubtitle) pageSubtitle.textContent = '输入 API Key 后即可使用。';
+    if(simpleSettingsContent) simpleSettingsContent.hidden = false;
+    if(simpleKeyHint){
+        simpleKeyHint.textContent = item.has_key ? '当前 API Key 已保存' : '保存后即可开始使用';
+    }
+    refreshIcons();
+}
+
+async function saveSimpleApiKey(){
+    if(apiSettingsMode !== 'simple' || !simpleKeyInput) return;
+    const apiKey = simpleKeyInput.value.trim();
+    if(!apiKey){
+        if(simpleKeyHint) simpleKeyHint.textContent = '请输入 API Key';
+        simpleKeyInput.focus();
+        return;
+    }
+    if(simpleSaveButton) simpleSaveButton.disabled = true;
+    if(simpleKeyHint) simpleKeyHint.textContent = '正在保存…';
+    try {
+        const response = await fetch('/api/providers', {
+            method:'PUT',
+            headers:{'Content-Type':'application/json'},
+            body:JSON.stringify([{id:'custom-api', api_key:apiKey}])
+        });
+        const data = await response.json();
+        if(!response.ok) throw new Error(data.detail || '保存失败');
+        providers = data.providers || providers;
+        simpleKeyInput.value = '';
+        renderSimpleApiSettings();
+        if(simpleKeyHint) simpleKeyHint.textContent = 'API Key 已保存';
+    } catch(err) {
+        if(simpleKeyHint) simpleKeyHint.textContent = err.message || '保存失败，请稍后重试';
+    } finally {
+        if(simpleSaveButton) simpleSaveButton.disabled = false;
     }
 }
 async function saveProviders(){
@@ -3846,6 +3904,10 @@ recommendApiOverlay?.addEventListener('mousedown', event => {
     if(event.target === recommendApiOverlay) closeRecommendApi();
 });
 window.addEventListener('studio-lang-change', () => {
+    if(apiSettingsMode === 'simple'){
+        renderSimpleApiSettings();
+        return;
+    }
     syncRecommendView();
     if(recommendInlineOpen) renderRecommendApi();
     else renderEditor();
@@ -3855,6 +3917,12 @@ window.onload = () => {
     if(window.StudioI18n) window.StudioI18n.apply();
     syncRecommendView();
     loadProviders();
+    if(simpleKeyInput) simpleKeyInput.addEventListener('keydown', event => {
+        if(event.key === 'Enter'){
+            event.preventDefault();
+            saveSimpleApiKey();
+        }
+    });
     // 平台名输入时实时预览生成的 ID
     if(nameInput) nameInput.addEventListener('input', updateIdPreview);
     if(protocolInput) protocolInput.addEventListener('change', updateProtocolFromInput);
